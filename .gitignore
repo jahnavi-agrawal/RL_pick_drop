@@ -1,0 +1,33 @@
+# Python virtual environments
+
+robot_rl/
+.venv/
+venv/
+env/
+
+# Python cache and compiled files
+
+**pycache**/
+*.py[cod]
+*.pyo
+
+# IDE and OS files
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Training outputs and checkpoints
+
+runs/
+logs/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.zip
+
+# Temporary files
+
+*.log
