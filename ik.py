@@ -4,8 +4,7 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 
-MODEL_PATH = "mujoco_menagerie/franka_emika_panda/panda_pick_place.xml"
-
+MODEL_PATH = "panda_proj/panda_pick_place.xml"
 model = mujoco.MjModel.from_xml_path(MODEL_PATH)
 data = mujoco.MjData(model)
 
