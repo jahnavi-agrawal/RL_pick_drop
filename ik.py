@@ -1,24 +1,37 @@
+
 import time
 import mujoco
 import mujoco.viewer
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 MODEL_PATH = "mujoco_menagerie/franka_emika_panda/panda_pick_place.xml"
-
-model = mujoco.MjModel.from_xml_path(MODEL_PATH)
-data = mujoco.MjData(model)
 
 # --------------------------------------------------
 # CONFIGURATION
 # --------------------------------------------------
 
 CUBE_POS = np.array([0.55, -0.15, 0.18])
-PREGRASP_HEIGHT = 0.08
+PREGRASP_HEIGHT = 0.10
+APPROACH_HEIGHT = 0.005
 
 ARM_JOINTS = [f"joint{i}" for i in range(1, 8)]
 
 # Midpoint between the fingertips relative to the hand.
 LOCAL_GRIP = np.array([0.0, 0.0, 0.1094])
+
+# Initial orientation hypothesis:
+# hand local +Z points downward in world coordinates.
+# Local Y is aligned with world -Y.
+TARGET_ROT = np.diag([1.0, -1.0, -1.0])
+
+POSITION_TOL = 0.005       # metres
+ORIENTATION_TOL = 0.08     # radians
+DAMPING = 0.05
+ORIENTATION_WEIGHT = 0.15
+
+model = mujoco.MjModel.from_xml_path(MODEL_PATH)
+data = mujoco.MjData(model)
 
 # --------------------------------------------------
 # FIND ROBOT JOINTS AND ACTUATORS
@@ -27,9 +40,14 @@ LOCAL_GRIP = np.array([0.0, 0.0, 0.1094])
 hand_id = mujoco.mj_name2id(
     model, mujoco.mjtObj.mjOBJ_BODY, "hand"
 )
+cube_id = mujoco.mj_name2id(
+    model, mujoco.mjtObj.mjOBJ_BODY, "cube"
+)
 
 if hand_id < 0:
-    raise ValueError("Could not find the Panda hand body.")
+    raise ValueError("Could not find body 'hand'.")
+if cube_id < 0:
+    raise ValueError("Could not find body 'cube'.")
 
 joint_ids = []
 qpos_ids = []
@@ -41,24 +59,24 @@ for name in ARM_JOINTS:
         model, mujoco.mjtObj.mjOBJ_JOINT, name
     )
     if jid < 0:
-        raise ValueError(f"Missing Panda joint: {name}")
+        raise ValueError(f"Missing joint: {name}")
 
     joint_ids.append(jid)
     qpos_ids.append(model.jnt_qposadr[jid])
     dof_ids.append(model.jnt_dofadr[jid])
 
-    actuator_id = -1
-    for aid in range(model.nu):
-        if model.actuator_trnid[aid, 0] == jid:
-            actuator_id = aid
+    aid = -1
+    for candidate in range(model.nu):
+        if model.actuator_trnid[candidate, 0] == jid:
+            aid = candidate
             break
 
-    if actuator_id < 0:
+    if aid < 0:
         raise ValueError(f"No actuator found for {name}")
 
-    arm_actuator_ids.append(actuator_id)
+    arm_actuator_ids.append(aid)
 
-# Find gripper actuators from the finger joint names.
+# Find individual finger actuators, or the combined gripper actuator.
 finger_names = {"finger_joint1", "finger_joint2"}
 gripper_actuator_ids = []
 
@@ -67,16 +85,13 @@ for aid in range(model.nu):
     if jid < 0:
         continue
 
-    joint_name = mujoco.mj_id2name(
+    name = mujoco.mj_id2name(
         model, mujoco.mjtObj.mjOBJ_JOINT, jid
     )
-
-    if joint_name in finger_names:
+    if name in finger_names:
         gripper_actuator_ids.append(aid)
 
 if not gripper_actuator_ids:
-    # Fallback for Menagerie models with a single named
-    # gripper actuator.
     for name in ("actuator8", "gripper"):
         aid = mujoco.mj_name2id(
             model, mujoco.mjtObj.mjOBJ_ACTUATOR, name
@@ -86,37 +101,59 @@ if not gripper_actuator_ids:
             break
 
 if not gripper_actuator_ids:
-    raise ValueError(
-        "No gripper actuator found. Inspect the actuator "
-        "section in panda.xml."
-    )
+    raise ValueError("Could not find a gripper actuator.")
 
-print("Arm actuator IDs:", arm_actuator_ids)
-print("Gripper actuator IDs:", gripper_actuator_ids)
-
-# Control endpoints for each gripper actuator.
-# This assumes the low endpoint closes and the high
-# endpoint opens the standard Panda position gripper.
 gripper_ranges = {}
-
 for aid in gripper_actuator_ids:
     if not model.actuator_ctrllimited[aid]:
         raise ValueError(
-            f"Gripper actuator {aid} has no control limits. "
-            "Set open/close targets for its actual actuator."
+            f"Gripper actuator {aid} has no control limits."
         )
-
     low, high = model.actuator_ctrlrange[aid]
     gripper_ranges[aid] = (float(low), float(high))
-    print(
-        f"Gripper actuator {aid}: "
-        f"close={low}, open={high}"
-    )
+
+print("Arm actuator IDs:", arm_actuator_ids)
+print("Gripper actuator IDs:", gripper_actuator_ids)
+print("Gripper ranges:", gripper_ranges)
 
 
 def set_gripper(open_gripper):
     for aid, (low, high) in gripper_ranges.items():
         data.ctrl[aid] = high if open_gripper else low
+
+
+# --------------------------------------------------
+# RESET TO HOME AND RESTORE CUBE
+# --------------------------------------------------
+
+def reset_scene():
+    mujoco.mj_resetData(model, data)
+
+    home_id = mujoco.mj_name2id(
+        model, mujoco.mjtObj.mjOBJ_KEY, "home"
+    )
+    if home_id >= 0:
+        mujoco.mj_resetDataKeyframe(model, data, home_id)
+
+    # A keyframe may also overwrite the free cube joint.
+    cube_joint_id = mujoco.mj_name2id(
+        model, mujoco.mjtObj.mjOBJ_JOINT, "cube_free"
+    )
+    if cube_joint_id < 0:
+        raise ValueError("Could not find joint 'cube_free'.")
+
+    cube_adr = model.jnt_qposadr[cube_joint_id]
+    data.qpos[cube_adr:cube_adr + 7] = [
+        *CUBE_POS, 1.0, 0.0, 0.0, 0.0
+    ]
+
+    mujoco.mj_forward(model, data)
+    set_gripper(True)
+
+    for i, aid in enumerate(arm_actuator_ids):
+        data.ctrl[aid] = data.qpos[qpos_ids[i]]
+
+    mujoco.mj_forward(model, data)
 
 
 # --------------------------------------------------
@@ -130,25 +167,37 @@ def get_gripper_position():
 
 
 # --------------------------------------------------
-# INVERSE KINEMATICS
+# POSITION + ORIENTATION IK
 # --------------------------------------------------
 
-def solve_ik(target, max_iterations=3000):
+def solve_ik(target_pos, target_rot=TARGET_ROT, max_iterations=4000):
     q = data.qpos[qpos_ids].copy()
+    target_rot = np.asarray(target_rot, dtype=float)
 
     for iteration in range(max_iterations):
         data.qpos[qpos_ids] = q
         mujoco.mj_forward(model, data)
 
         grip_pos = get_gripper_position()
-        error = target - grip_pos
+        current_rot = data.xmat[hand_id].reshape(3, 3)
 
-        if np.linalg.norm(error) < 0.003:
+        pos_error = target_pos - grip_pos
+
+        # Robust axis-angle orientation error, including near 180 degrees.
+        rot_error = Rotation.from_matrix(
+            target_rot @ current_rot.T
+        ).as_rotvec()
+
+        if (
+            np.linalg.norm(pos_error) < POSITION_TOL
+            and np.linalg.norm(rot_error) < ORIENTATION_TOL
+        ):
             print(
-                f"IK converged in {iteration} iterations. "
-                f"Error: {np.linalg.norm(error):.4f} m"
+                f"IK converged in {iteration} iterations | "
+                f"position error={np.linalg.norm(pos_error):.4f} m | "
+                f"orientation error={np.linalg.norm(rot_error):.4f} rad"
             )
-            return q
+            return q.copy()
 
         jacp = np.zeros((3, model.nv))
         jacr = np.zeros((3, model.nv))
@@ -157,11 +206,20 @@ def solve_ik(target, max_iterations=3000):
             model, data, jacp, jacr, grip_pos, hand_id
         )
 
-        J = jacp[:, dof_ids]
-        damping = 0.05
+        Jp = jacp[:, dof_ids]
+        Jr = jacr[:, dof_ids]
+
+        J = np.vstack([
+            Jp,
+            ORIENTATION_WEIGHT * Jr
+        ])
+        error = np.concatenate([
+            pos_error,
+            ORIENTATION_WEIGHT * rot_error
+        ])
 
         dq = J.T @ np.linalg.solve(
-            J @ J.T + damping**2 * np.eye(3),
+            J @ J.T + DAMPING**2 * np.eye(6),
             error
         )
 
@@ -170,18 +228,46 @@ def solve_ik(target, max_iterations=3000):
 
         for i, jid in enumerate(joint_ids):
             if model.jnt_limited[jid]:
-                lo, hi = model.jnt_range[jid]
-                q[i] = np.clip(q[i], lo, hi)
+                low, high = model.jnt_range[jid]
+                q[i] = np.clip(q[i], low, high)
+
+    data.qpos[qpos_ids] = q
+    mujoco.mj_forward(model, data)
+
+    pos_err = np.linalg.norm(target_pos - get_gripper_position())
+    rot_err = np.linalg.norm(
+        Rotation.from_matrix(
+            target_rot @ data.xmat[hand_id].reshape(3, 3).T
+        ).as_rotvec()
+    )
 
     print(
-        "Warning: IK did not fully converge. "
-        f"Remaining error: {np.linalg.norm(target - get_gripper_position()):.4f} m"
+        "WARNING: IK did not meet both tolerances | "
+        f"position error={pos_err:.4f} m | "
+        f"orientation error={rot_err:.4f} rad"
     )
-    return q
+    return q.copy()
+
+
+def check_solution(q, target_pos, label):
+    data.qpos[qpos_ids] = q
+    mujoco.mj_forward(model, data)
+
+    pos_err = np.linalg.norm(target_pos - get_gripper_position())
+    rot_err = np.linalg.norm(
+        Rotation.from_matrix(
+            TARGET_ROT @ data.xmat[hand_id].reshape(3, 3).T
+        ).as_rotvec()
+    )
+
+    print(
+        f"{label}: position error={pos_err:.4f} m, "
+        f"orientation error={rot_err:.4f} rad"
+    )
 
 
 # --------------------------------------------------
-# MOVE ARM TO A JOINT TARGET
+# MOVE ARM
 # --------------------------------------------------
 
 def move_to(q_target, duration, viewer):
@@ -196,80 +282,88 @@ def move_to(q_target, duration, viewer):
         time.sleep(0.002)
 
 
+def hold_pose(q_target, steps, viewer, open_gripper):
+    for _ in range(steps):
+        if not viewer.is_running():
+            break
+
+        for i, aid in enumerate(arm_actuator_ids):
+            data.ctrl[aid] = q_target[i]
+
+        set_gripper(open_gripper)
+        mujoco.mj_step(model, data)
+        viewer.sync()
+
+
 # --------------------------------------------------
-# RUN PICK APPROACH AND GRIP
+# SOLVE AND VALIDATE
 # --------------------------------------------------
 
-mujoco.mj_forward(model, data)
+reset_scene()
+home_q = data.qpos[qpos_ids].copy()
 
-# Compute approach and grasp targets.
 pregrasp_pos = CUBE_POS + np.array(
     [0.0, 0.0, PREGRASP_HEIGHT]
 )
 
-print("Solving pre-grasp IK...")
-q_pregrasp = solve_ik(pregrasp_pos)
+# The fingertip midpoint should reach the cube centre height
+# to grasp its sides. Approach from above first.
+grasp_pos = CUBE_POS + np.array(
+    [0.0, 0.0, APPROACH_HEIGHT]
+)
 
-print("Solving cube-centre IK...")
-q_grasp = solve_ik(CUBE_POS)
-
-# Restore initial simulation state before the run.
-mujoco.mj_resetData(model, data)
+print("\nSolving pre-grasp IK...")
+data.qpos[qpos_ids] = home_q
 mujoco.mj_forward(model, data)
+q_pregrasp = solve_ik(pregrasp_pos)
+check_solution(q_pregrasp, pregrasp_pos, "Pre-grasp")
+
+print("\nSolving grasp IK...")
+data.qpos[qpos_ids] = q_pregrasp
+mujoco.mj_forward(model, data)
+q_grasp = solve_ik(grasp_pos)
+check_solution(q_grasp, grasp_pos, "Grasp")
+
+# Restore the scene before executing the motion.
+reset_scene()
+
+# --------------------------------------------------
+# EXECUTE PICK TEST
+# --------------------------------------------------
 
 with mujoco.viewer.launch_passive(model, data) as viewer:
-
-    print("Opening gripper...")
+    print("\nOpening gripper...")
     set_gripper(True)
 
     for _ in range(100):
+        if not viewer.is_running():
+            break
         mujoco.mj_step(model, data)
         viewer.sync()
 
     print("Moving above cube...")
     move_to(q_pregrasp, 4.0, viewer)
+    hold_pose(q_pregrasp, 100, viewer, open_gripper=True)
 
-    print("Descending to cube...")
+    print("Descending toward cube...")
     move_to(q_grasp, 2.0, viewer)
-
-    # Allow the arm to settle before closing.
-    for _ in range(100):
-        if not viewer.is_running():
-            break
-        for i, aid in enumerate(arm_actuator_ids):
-            data.ctrl[aid] = q_grasp[i]
-        set_gripper(True)
-        mujoco.mj_step(model, data)
-        viewer.sync()
+    hold_pose(q_grasp, 100, viewer, open_gripper=True)
 
     print("Closing gripper...")
-    set_gripper(False)
+    hold_pose(q_grasp, 300, viewer, open_gripper=False)
 
-    for _ in range(300):
-        if not viewer.is_running():
-            break
-        for i, aid in enumerate(arm_actuator_ids):
-            data.ctrl[aid] = q_grasp[i]
-        set_gripper(False)
-        mujoco.mj_step(model, data)
-        viewer.sync()
-
-    cube_id = mujoco.mj_name2id(
-        model, mujoco.mjtObj.mjOBJ_BODY, "cube"
-    )
-
-    print("Gripper command sent.")
     print("Cube position:", data.xpos[cube_id].copy())
+    print("Hand position:", data.xpos[hand_id].copy())
     print("Gripper position:", get_gripper_position())
-
     print(
-        "Inspect the fingers and cube in the viewer. "
-        "The script will keep the viewer open."
+        "Inspect finger alignment and cube contact in the viewer. "
+        "Close the viewer to exit."
     )
 
     while viewer.is_running():
         for i, aid in enumerate(arm_actuator_ids):
             data.ctrl[aid] = q_grasp[i]
+
         set_gripper(False)
         mujoco.mj_step(model, data)
         viewer.sync()
