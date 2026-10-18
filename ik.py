@@ -13,7 +13,7 @@ MODEL_PATH = "mujoco_menagerie/franka_emika_panda/panda_pick_place.xml"
 
 CUBE_POS = np.array([0.55, -0.15, 0.18])
 PREGRASP_HEIGHT = 0.10
-APPROACH_HEIGHT = 0.005
+APPROACH_HEIGHT = 0.003
 
 ARM_JOINTS = [f"joint{i}" for i in range(1, 8)]
 
@@ -316,6 +316,8 @@ print("\nSolving pre-grasp IK...")
 data.qpos[qpos_ids] = home_q
 mujoco.mj_forward(model, data)
 q_pregrasp = solve_ik(pregrasp_pos)
+np.save("pregrasp_q.npy", q_pregrasp)
+print("Saved pre-grasp joint configuration.")
 check_solution(q_pregrasp, pregrasp_pos, "Pre-grasp")
 
 print("\nSolving grasp IK...")
@@ -350,7 +352,17 @@ with mujoco.viewer.launch_passive(model, data) as viewer:
     hold_pose(q_grasp, 100, viewer, open_gripper=True)
 
     print("Closing gripper...")
-    hold_pose(q_grasp, 300, viewer, open_gripper=False)
+    hold_pose(q_grasp, 500, viewer, open_gripper=False)
+
+    print("Lifting cube...")
+
+    q_lift = q_grasp.copy()
+    q_lift[1] -= 0.25  # Temporary test only; may not move vertically.
+
+    move_to(q_lift, 2.0, viewer)
+    hold_pose(q_lift, 200, viewer, open_gripper=False)
+
+    print("Cube position after lift:", data.xpos[cube_id].copy())
 
     print("Cube position:", data.xpos[cube_id].copy())
     print("Hand position:", data.xpos[hand_id].copy())

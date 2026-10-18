@@ -76,7 +76,7 @@
                   size="0.03 0.03 0.03"
                   rgba="0.8 0.05 0.05 1"
                   mass="0.1"
-                  friction="2 0.01 0.001"
+                  friction="3 0.02 0.002"
                   condim="4"/>
 
         </body>

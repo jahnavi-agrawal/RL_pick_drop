@@ -323,6 +323,13 @@ class PandaLiftEnv(gym.Env):
 
         # Initialize episode state.
         self.initial_cube_z = float(self._cube_pos()[2])
+
+        pregrasp_q = np.load("pregrasp_q.npy")
+
+        self.data.qpos[self.arm_qpos_addresses] = pregrasp_q
+        mujoco.mj_forward(self.model, self.data)
+
+
         self.arm_targets = np.array([
             self.data.qpos[a] for a in self.arm_qpos_addresses
         ])
@@ -452,3 +459,40 @@ class PandaLiftEnv(gym.Env):
         if viewer is not None:
             viewer.close()
             self._viewer = None
+
+    
+    def debug_cube_contacts(self):
+        cube_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_BODY, "cube"
+        )
+        left_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_BODY, "left_finger"
+        )
+        right_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_BODY, "right_finger"
+        )
+
+        print("Cube body ID:", cube_id)
+        print("Left finger body ID:", left_id)
+        print("Right finger body ID:", right_id)
+        print("Current contacts:", self.data.ncon)
+
+        for i in range(self.data.ncon):
+            contact = self.data.contact[i]
+            b1 = int(self.model.geom_bodyid[contact.geom1])
+            b2 = int(self.model.geom_bodyid[contact.geom2])
+
+            if b1 == cube_id or b2 == cube_id:
+                other = b2 if b1 == cube_id else b1
+                other_name = mujoco.mj_id2name(
+                    self.model, mujoco.mjtObj.mjOBJ_BODY, other
+                )
+                force = np.zeros(6)
+                mujoco.mj_contactForce(self.model, self.data, i, force)
+
+                print(
+                    f"geom1={contact.geom1}, geom2={contact.geom2}, "
+                    f"other_body={other_name}, "
+                    f"contact_force={np.linalg.norm(force[:3]):.3f} N"
+                )
+
