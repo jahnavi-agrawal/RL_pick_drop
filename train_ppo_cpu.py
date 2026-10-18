@@ -4,7 +4,7 @@ CPU PPO training for the force-aware Panda lift task.
 Run from the project root:
 python train_ppo_cpu.py --xml mujoco_menagerie/franka_emika_panda/panda_pick_place.xml
 
-Requires pregrasp_q.npy in the project root because PandaLiftEnv.reset()
+Requires grasp_q.npy in the project root because PandaLiftEnv.reset()
 loads that file using a relative path.
 """
 
@@ -30,11 +30,13 @@ def parse_args():
         "--xml",
         default="mujoco_menagerie/franka_emika_panda/panda_pick_place.xml",
     )
-    parser.add_argument("--timesteps", type=int, default=100_000)
-    parser.add_argument("--n-envs", type=int, default=1)
+    
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--out", default="runs/panda_lift_baseline")
-    parser.add_argument("--logdir", default="logs/panda_lift")
+
+    parser.add_argument("--timesteps", type=int, default=200_000)
+    parser.add_argument("--n-envs", type=int, default=1)
+    parser.add_argument("--out", default="runs/panda_grasp_lift_v1")
+    parser.add_argument("--logdir", default="logs/panda_grasp_lift_v1")
     return parser.parse_args()
 
 
@@ -48,9 +50,10 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    if not Path("pregrasp_q.npy").exists():
+    if not Path("grasp_q.npy").exists():
         raise FileNotFoundError(
-            "pregrasp_q.npy was not found in the project root."
+            "grasp_q.npy was not found in the project root. "
+            "Save q_grasp from ik.py first."
         )
 
     # Keep the first experiment CPU-friendly and reproducible.
@@ -103,7 +106,7 @@ def main():
         "gae_lambda": 0.95,
         "ent_coef": 0.01,
         "device": "cpu",
-        "start_state": "pregrasp_q.npy",
+        "start_state": "grasp_q.npy",
     }
 
     with open(out_dir / "config.json", "w", encoding="utf-8") as f:

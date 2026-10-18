@@ -325,10 +325,13 @@ class PandaLiftEnv(gym.Env):
         self.initial_cube_z = float(self._cube_pos()[2])
 
         # pregrasp_q = np.load("pregrasp_q.npy")
-        pregrasp_q = np.load("grasp_q.npy")
+        grasp_q = np.load("grasp_q.npy")
+        self.data.qpos[self.arm_qpos_addresses] = grasp_q
 
-        self.data.qpos[self.arm_qpos_addresses] = pregrasp_q
         mujoco.mj_forward(self.model, self.data)
+
+        # self.data.qpos[self.arm_qpos_addresses] = pregrasp_q
+        # mujoco.mj_forward(self.model, self.data)
 
         hand_id = mujoco.mj_name2id(
             self.model, mujoco.mjtObj.mjOBJ_BODY, "hand"
@@ -339,7 +342,8 @@ class PandaLiftEnv(gym.Env):
 
         print("Reset hand position:", self.data.xpos[hand_id])
         print("Reset cube position:", self.data.xpos[cube_id])
-        print("Loaded pregrasp joints:", self.data.qpos[:7])
+        print("Loaded grasp joints:", self.data.qpos[self.arm_qpos_addresses])
+        print("Initial cube height:", self.initial_cube_z)
 
         self.arm_targets = np.array([
             self.data.qpos[a] for a in self.arm_qpos_addresses
@@ -392,8 +396,10 @@ class PandaLiftEnv(gym.Env):
         contact_count = int(left_contact) + int(right_contact)
 
         # 1) Approach progress and small remaining-distance penalty.
-        reward = W_APPROACH_PROGRESS * (distance_before - distance_after)
-        reward -= W_DISTANCE * distance_after
+        # reward = W_APPROACH_PROGRESS * (distance_before - distance_after)
+        # reward -= W_DISTANCE * distance_after
+        # Grasp-and-lift task: don't reward movement of the hand body origin.
+        reward = 0.0
 
         # 2) One-time contact bonuses (avoid paying the same bonus every step).
         if contact_count >= 1 and self.previous_contact_count == 0:
