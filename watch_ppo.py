@@ -26,22 +26,22 @@ def main():
         obs, _ = env.reset(seed=123)
 
         import numpy as np
-        import mujoco 
+        import mujoco
 
         data = env.unwrapped.data
-        model = env.unwrapped.model
+        mj_model = env.unwrapped.model
 
         cube_id = mujoco.mj_name2id(
-            model, mujoco.mjtObj.mjOBJ_BODY, "cube"
+            mj_model, mujoco.mjtObj.mjOBJ_BODY, "cube"
         )
         hand_id = mujoco.mj_name2id(
-            model, mujoco.mjtObj.mjOBJ_BODY, "hand"
+            mj_model, mujoco.mjtObj.mjOBJ_BODY, "hand"
         )
         left_id = mujoco.mj_name2id(
-            model, mujoco.mjtObj.mjOBJ_BODY, "left_finger"
+            mj_model, mujoco.mjtObj.mjOBJ_BODY, "left_finger"
         )
         right_id = mujoco.mj_name2id(
-            model, mujoco.mjtObj.mjOBJ_BODY, "right_finger"
+            mj_model, mujoco.mjtObj.mjOBJ_BODY, "right_finger"
         )
 
         print("Cube:", data.xpos[cube_id])
