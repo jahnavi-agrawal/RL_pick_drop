@@ -324,11 +324,22 @@ class PandaLiftEnv(gym.Env):
         # Initialize episode state.
         self.initial_cube_z = float(self._cube_pos()[2])
 
-        pregrasp_q = np.load("pregrasp_q.npy")
+        # pregrasp_q = np.load("pregrasp_q.npy")
+        pregrasp_q = np.load("grasp_q.npy")
 
         self.data.qpos[self.arm_qpos_addresses] = pregrasp_q
         mujoco.mj_forward(self.model, self.data)
 
+        hand_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_BODY, "hand"
+        )
+        cube_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_BODY, "cube"
+        )
+
+        print("Reset hand position:", self.data.xpos[hand_id])
+        print("Reset cube position:", self.data.xpos[cube_id])
+        print("Loaded pregrasp joints:", self.data.qpos[:7])
 
         self.arm_targets = np.array([
             self.data.qpos[a] for a in self.arm_qpos_addresses
