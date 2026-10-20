@@ -7,8 +7,8 @@ from pick_lift_env import PandaLiftEnv
 
 XML_PATH = "mujoco_menagerie/franka_emika_panda/panda_pick_place.xml"
 
-# Change this if your model was saved somewhere else.
-MODEL_PATH = "runs/panda_lift_baseline/best/best_model.zip"
+# Keep this in sync with train_ppo_cpu.py's default --out directory.
+MODEL_PATH = "runs/panda_grasp_lift_v1/best/best_model.zip"
 
 def main():
     if not Path(MODEL_PATH).exists():
