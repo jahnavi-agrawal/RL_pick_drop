@@ -89,11 +89,9 @@ $$
 
 The first seven values increment the arm's joint targets:
 
-$$
-q_{t+1}^{i,\mathrm{target}}=
-\operatorname{clip}\left(q_t^{i,\mathrm{target}}+0.035a_t^i,
-q_{\min}^i,q_{\max}^i\right),\qquad i=1,\ldots,7.
-$$
+
+$$q_{t+1}^{i,\mathrm{target}} = \text{clip}\left(q_t^{i,\mathrm{target}} + 0.035a_t^i, q_{\min}^i, q_{\max}^i\right), \qquad i = 1, \ldots, 7.$$
+
 
 The increment scale is $0.035$ rad per environment action. The eighth value controls the gripper:
 
@@ -112,107 +110,9 @@ The scene uses the Panda convention $0=\text{closed}$ and $255=\text{open}$. One
 
 **Files:** `train_ppo_cpu.py` and `pick_lift_env.py`
 
-**Question:** How does PPO learn to close the gripper and lift the cube from the IK grasp start under the baseline contact, force, and lift reward?
-
-### Reward variables
-
-Let the left and right contact indicators be:
-
 $$
-C_t^L=\mathbb{1}[f_t^L>0.1],\qquad
-C_t^R=\mathbb{1}[f_t^R>0.1],\qquad
-B_t=C_t^LC_t^R.
+ r_t = \begin{cases} +5, & \text{approach cube},\\ +1, & \text{first finger contact},\\ +2, & \text{both fingers contact the cube},\\ +20\Delta h_t, & \text{cube lifted with bilateral contact},\\ -0.05(\bar F_t-2)^2, & \text{force regulation, bilateral contact},\\ -0.1\max(0,\bar F_t-8)^2, & \text{excessive force, bilateral contact},\\ +0.5, & \text{cube held at least 5 cm high},\\ +25, & \text{successful lift},\\ -10, & \text{cube dropped},\\ 0, & \text{otherwise}. \end{cases} 
 $$
-
-Let $n_t=C_t^L+C_t^R$ be the number of fingers in contact. Define cube lift above its reset height, positive lift progress, and mean finger force as:
-
-$$
-h_t=\max(0,z_t^{cube}-z_0^{cube}),\qquad
-\Delta h_t=\max(0,h_t-h_{t-1}),\qquad
-\bar f_t=\frac{f_t^L+f_t^R}{2}.
-$$
-
-### Reward components
-
-First-finger contact reward:
-
-$$
-r_t^{first}=\begin{cases}
-1, & n_{t-1}=0\text{ and }n_t\ge1,\\
-0, & \text{otherwise}.
-\end{cases}
-$$
-
-Bilateral-contact reward:
-
-$$
-r_t^{bilateral}=\begin{cases}
-2, & B_t=1\text{ and }n_{t-1}<2,\\
-0, & \text{otherwise}.
-\end{cases}
-$$
-
-These transition rewards can be earned again if contact is lost and then re-established.
-
-Lift-progress reward, only when both fingers contact the cube:
-
-$$
-r_t^{lift}=20B_t\Delta h_t.
-$$
-
-Force penalty, also applied only during bilateral contact:
-
-$$
-P_t^{force}=B_t\left[
-0.05(\bar f_t-2)^2+
-0.1\max(0,\bar f_t-8)^2
-\right].
-$$
-
-The first term attracts the mean force toward a 2 N target; the second adds a penalty above 8 N. These values are initial tuning choices, not measured safe or optimal force targets.
-
-Holding reward:
-
-$$
-r_t^{hold}=\begin{cases}
-0.5, & h_t\ge0.05\text{ m and }B_t=1,\\
-0, & \text{otherwise}.
-\end{cases}
-$$
-
-Success reward is $25$ once the hold condition has remained true for 10 consecutive environment actions. Losing height or bilateral contact resets the consecutive-action counter.
-
-Equivalently, with $H_t=\mathbb{1}[h_t\ge0.05\text{ m and }B_t=1]$:
-
-$$
-r_t^{success}=\begin{cases}
-25, & H_t=H_{t-1}=\cdots=H_{t-9}=1\text{ and success has not been paid},\\
-0, & \text{otherwise}.
-\end{cases}
-$$
-
-Drop/fall reward:
-
-$$
-r_t^{drop}=\begin{cases}
--10, & \text{drop/fall termination occurs before success},\\
-0, & \text{otherwise}.
-\end{cases}
-$$
-
-A drop is triggered if the cube falls below $0.02$ m of lift after having been lifted, or if its world-frame height drops below $0.05$ m.
-
-Total Experiment 1 reward:
-
-$$
-\boxed{
-r_t^{(1)}=
-r_t^{first}+r_t^{bilateral}+20B_t\Delta h_t
--P_t^{force}+r_t^{hold}+r_t^{success}+r_t^{drop}
-}.
-$$
-
-**Approach reward status:** The approach-progress and distance weights exist in `pick_lift_env.py`, but their reward expressions are commented out. The implemented reward starts from zero and does not award approach progress or penalize distance. This matches the IK grasp starting pose.
 
 ### Training defaults
 
@@ -229,7 +129,6 @@ $$
 | GAE lambda | 0.95 |
 | Entropy coefficient | 0.01 |
 
-The optional `--sweep` mode compares the baseline settings with a lower learning rate and a lower entropy coefficient, using the same Experiment 1 reward. The sweep runs sequentially. Set `--sweep-timesteps` explicitly to control the per-trial budget.
 
 ## 4. Experiment 2 — lift-focused reward
 
@@ -239,47 +138,18 @@ The optional `--sweep` mode compares the baseline settings with a lower learning
 
 Experiment 2 uses the same state, actions, reset pose, task success condition, and PPO hyperparameters as Experiment 1. It subclasses the baseline environment and changes only the reward calculation and evaluation reporting.
 
-### Reward components
-
-The contact indicators, bilateral-contact indicator, lift height, and force definitions are the same as in Experiment 1.
-
-One bilateral-contact transition bonus:
 
 $$
-r_t^{contact,2}=\begin{cases}
-1, & B_t=1\text{ and }n_{t-1}<2,\\
+r_t =
+\begin{cases}
++1, & \text{bilateral contact established},\\
++20\min(\Delta h_t,0.005), & \text{lift reward per meter, bilateral contact},\\
+-0.05\max(0,\bar F_t-8)^2, & \text{excessive force penalty, bilateral contact},\\
++0.5, & \text {hold bonus per step, } h_t  \geq 0.05 \text{ m},\\
++25, & \text{successful lift and hold},\\
+-10, & \text{cube dropped},\\
 0, & \text{otherwise}.
 \end{cases}
-$$
-
-This bonus can recur after bilateral contact is lost and re-established. Experiment 2 removes the separate first-finger-contact bonus.
-
-Capped lift-progress reward:
-
-$$
-r_t^{lift,2}=20B_t\min\left(\max(0,h_t-h_{t-1}),0.005\text{ m}\right).
-$$
-
-The per-action lift contribution is capped at $20\times0.005=0.1$, limiting reward spikes caused by sudden contact impulses.
-
-Excessive-force penalty:
-
-$$
-P_t^{force,2}=0.05B_t\max(0,\bar f_t-8)^2.
-$$
-
-Experiment 2 removes the 2 N force-target penalty. It only penalizes mean finger force above 8 N, reducing pressure to seek a particular force value before actual force behavior has been calibrated.
-
-The hold reward ($+0.5$ per qualifying action), success reward ($+25$ after 10 consecutive qualifying actions, paid once), and drop/fall penalty ($-10$) retain the Experiment 1 definitions.
-
-Total Experiment 2 reward:
-
-$$
-\boxed{
-r_t^{(2)}=
-r_t^{contact,2}+r_t^{lift,2}-P_t^{force,2}
-+r_t^{hold}+r_t^{success}+r_t^{drop}
-}.
 $$
 
 ### What changed and why
@@ -311,12 +181,6 @@ Experiment 2 writes its end-of-run task metrics to `runs/panda_lift_focus_v1/eva
 
 ## 6. Visualizing the scene and policy
 
-View the frozen Panda and cube scene:
-
-```bash
-mjpython view_static_scene.py
-```
-
 Watch the trained Experiment 2 policy:
 
 ```bash
@@ -331,8 +195,6 @@ On macOS, use `mjpython` for MuJoCo viewer scripts. The policy viewer expects th
 - `train_ppo_cpu.py` — Experiment 1 training and optional hyperparameter sweep.
 - `train_ppo_lift_focus.py` — Experiment 2 reward variant, PPO training, and final task-metric evaluation.
 - `watch_ppo_lift_focus.py` — visualizes an Experiment 2 policy.
-- `view_static_scene.py` — opens a frozen scene with the arm and cube.
-- `MUJOCO_AND_CODE_WALKTHROUGH.md` — additional model and simulation notes.
 
 ## Notes and limitations
 

@@ -32,15 +32,6 @@ from pick_lift_env import (
 
 # Conservative starting weights for this reward variant; treat them as tuning
 # values, not validated physical constants.
-CONTACT_BONUS = 1.0
-LIFT_REWARD_PER_METER = 20.0
-MAX_LIFT_REWARD_METERS_PER_STEP = 0.005
-HOLD_BONUS_PER_STEP = 0.5
-SUCCESS_BONUS = 25.0
-DROP_PENALTY = -10.0
-FORCE_LIMIT_N = 8.0
-EXCESS_FORCE_PENALTY = 0.05
-CONTACT_FORCE_THRESHOLD_N = 0.1
 
 
 class LiftFocusedPandaEnv(PandaLiftEnv):

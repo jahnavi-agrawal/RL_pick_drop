@@ -19,7 +19,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--model",
-        default="runs/panda_lift_focus_v1/best/best_model.zip",
+        default="runs/panda_grasp_lift_v1/best/best_model.zip",
         help="PPO checkpoint to load (best_model.zip or final_model.zip).",
     )
     parser.add_argument(
