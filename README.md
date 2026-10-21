@@ -152,17 +152,6 @@ r_t =
 \end{cases}
 $$
 
-### What changed and why
-
-| Reward element | Experiment 1 | Experiment 2 | Reason for change |
-|---|---|---|---|
-| Approach progress/distance | Disabled | Disabled | The IK reset already puts the arm at the grasp pose; approach is not the behavior being learned. |
-| First finger contact | $+1$ on transition from zero contacts | Removed | Credit is focused on establishing a two-finger grasp rather than touching with one finger. |
-| Bilateral contact | $+2$ on transition to two contacts | $+1$ on transition to two contacts | Keeps a contact signal while making it less dominant relative to task completion. |
-| Lift progress | $20B_t\Delta h_t$ | Same scale, with progress capped at 5 mm per action | Limits occasional large rewards from contact or physics impulses. |
-| Force penalty | Target 2 N plus penalty above 8 N | Penalty only above 8 N | Avoids steering the policy toward an unvalidated target force. |
-| Stable hold/success/drop | $+0.5$ per qualifying action, $+25$ success, $-10$ drop | Unchanged | Keeps the task outcome definition comparable across reward experiments. |
-
 Experiment 2 defaults to 500,000 training timesteps, one environment, and CPU. It uses the same PPO settings as Experiment 1. During training it evaluates every 25,000 steps over five episodes. At the end it evaluates the best available model over 20 episodes and writes success rate, mean return, mean maximum lift, bilateral-contact step rate, and drop count to `evaluation_summary.json`.
 
 ## 5. Comparing results
